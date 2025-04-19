@@ -15,7 +15,6 @@ import {
 } from "./helper.js";
 const githubApiBase = process.env.GITHUB_API_BASE ?? "https://api.github.com";
 const githubWebBase = process.env.GITHUB_WEB_BASE ?? "https://github.com";
-import { write } from "fs";
 
 const server = new McpServer({
   name: "pr-writer",
