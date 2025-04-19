@@ -11,8 +11,9 @@ import {
   getRepoInfo,
   getGitDiff,
   getGitUser,
-  loadPRTemplate
+  loadPRTemplate,
 } from "./helper.js";
+import { write } from "fs";
 
 const server = new McpServer({
   name: "pr-writer",
@@ -25,7 +26,6 @@ server.tool(
   {
     workingDir: z
       .string()
-      .default(".")
       .describe("Path to the working Git directory"),
     baseBranch: z
       .string()
@@ -41,20 +41,43 @@ server.tool(
     const diff = getGitDiff(baseBranch, headBranch, workingDir);
     const ticketTag = extractTicketTag(headBranch);
     const template = loadPRTemplate(workingDir);
+    const commitsRaw = execSync(
+      `git log ${baseBranch}..${headBranch} --pretty=format:"%h %s"`,
+      {
+        cwd: workingDir,
+        encoding: "utf-8",
+      }
+    );
+
+    const { owner, repo } = getRepoInfo(workingDir);
+    writeLog(`commitsRaw: ${commitsRaw}`, "pr-writer");
+    const commitLines = commitsRaw
+      .split("\n")
+      .map((line) => {
+        const [hash, ...msgParts] = line.split(" ");
+        const msg = msgParts.join(" ");
+        const url = `https://github.com/${owner}/${repo}/commit/${hash}`;
+        return `- [${hash}](${url}) ${msg}`;
+      })
+      .join("\n");
     const message = [
       `You are about to generate a pull request based on the following Git diff.`,
-      `Please create a draft pull request title and description.`,
+    `Please create a draft pull request title and description. Include a summary of the recent commits in the description.`,
       `Make sure to include a checklist of items to test and a list of affected areas.`,
       ticketTag
         ? `The current branch is "${headBranch}", which includes a ticket ID: "${ticketTag}". Please format the pull request title as: [${ticketTag}] Your title here.`
         : `If the current branch contains a ticket ID (e.g. "TICKET-123"), format the title like: [TICKET-123] Your title here.`,
+      template
+        ? `\n---\nPlease follow this PR template:\n\n${template}\n---\n`
+        : "",
+      `Please summarize the recent commits section into the body of the pull request.`,
+      `\n## Recent Commits\n\n${commitLines}\n`,
       `Present the result in a way that the user can review and optionally revise before submitting.`,
       `Ask the user: "Would you like to proceed with this pull request as written, or make some changes?"`,
-      template ? `\n---\nPlease follow this PR template:\n\n${template}\n---\n` : "",
       diff,
     ].join("\n");
 
-    writeLog(message, workingDir);
+    writeLog(message, "pr-writer");
     return {
       content: [
         {
@@ -72,7 +95,6 @@ server.tool(
   {
     workingDir: z
       .string()
-      .default(".")
       .describe("Path to the working Git directory"),
     baseBranch: z
       .string()
@@ -84,7 +106,10 @@ server.tool(
       ),
     title: z.string().describe("Title of the pull request"),
     body: z.string().describe("Body/description of the pull request"),
-    reviewers: z.array(z.string()).optional().describe("GitHub usernames to assign as reviewers")
+    reviewers: z
+      .array(z.string())
+      .optional()
+      .describe("GitHub usernames to assign as reviewers"),
   },
   async ({ workingDir, baseBranch, headBranch, title, body, reviewers }) => {
     try {
@@ -92,7 +117,7 @@ server.tool(
         cwd: workingDir,
         encoding: "utf-8",
       });
-      writeLog(`✅ Branch pushed successfully:\n${pushResult}`, workingDir);
+      writeLog(`✅ Branch pushed successfully:\n${pushResult}`, "pr-submitter");
 
       const { owner, repo } = getRepoInfo(workingDir);
       const githubToken = process.env.GITHUB_TOKEN;
@@ -110,9 +135,9 @@ server.tool(
 
       try {
         const url = `https://api.github.com/repos/${owner}/${repo}/pulls`;
-        writeLog(`Creating pull request...${url}`, workingDir);
+        writeLog(`Creating pull request...${url}`, "pr-submitter");
         const user = getGitUser(workingDir);
-        
+
         // Check if a pull request already exists between the same head and base
         const existingPRRes = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/pulls?head=${owner}:${headBranch}&base=${baseBranch}`,
@@ -120,42 +145,61 @@ server.tool(
             headers: {
               Authorization: `Bearer ${githubToken}`,
               Accept: "application/vnd.github+json",
-              "User-Agent": "mcp-pr-writer"
-            }
+              "User-Agent": "mcp-pr-writer",
+            },
           }
         );
-      
+
         if (!existingPRRes.ok) {
           const errorText = await existingPRRes.text();
-          writeLog(`❌ Failed to check for existing PR: ${errorText}`, workingDir);
+          writeLog(
+            `❌ Failed to check for existing PR: ${errorText}`,
+            "pr-submitter"
+          );
         }
-      
-        const existingPRs = await existingPRRes.json() as any[];
+
+        const existingPRs = (await existingPRRes.json()) as any[];
         const existingPR = existingPRs[0];
-      
+
         if (existingPR) {
-          const updateRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${existingPR.number}`, {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${githubToken}`,
-              Accept: "application/vnd.github+json",
-              "User-Agent": "mcp-pr-writer"
-            },
-            body: JSON.stringify({ title, body })
-          });
-      
+          const updateRes = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/pulls/${existingPR.number}`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${githubToken}`,
+                Accept: "application/vnd.github+json",
+                "User-Agent": "mcp-pr-writer",
+              },
+              body: JSON.stringify({ title, body }),
+            }
+          );
+
           if (!updateRes.ok) {
             const errorText = await updateRes.text();
-            writeLog(`❌ Failed to update existing PR: ${errorText}`, workingDir);
+            writeLog(
+              `❌ Failed to update existing PR: ${errorText}`,
+              "pr-submitter"
+            );
             return {
-              content: [{ type: "text", text: `❌ Failed to update existing PR.\n\n${errorText}` }]
+              content: [
+                {
+                  type: "text",
+                  text: `❌ Failed to update existing PR.\n\n${errorText}`,
+                },
+              ],
             };
           }
-      
-          const updatedPR = await updateRes.json() as GithubPRResponse;
-          writeLog(`✅ Updated existing PR: ${updatedPR.html_url}`, workingDir);
+
+          const updatedPR = (await updateRes.json()) as GithubPRResponse;
+          writeLog(`✅ Updated existing PR: ${updatedPR.html_url}`, "pr-submitter");
           return {
-            content: [{ type: "text", text: `✅ Pull request updated: ${updatedPR.html_url}` }]
+            content: [
+              {
+                type: "text",
+                text: `✅ Pull request updated: ${updatedPR.html_url}`,
+              },
+            ],
           };
         }
         const payload = {
@@ -178,7 +222,7 @@ server.tool(
 
         if (!res.ok) {
           const errorText = await res.text();
-          writeLog(`❌ GitHub PR creation failed: ${errorText}`, workingDir);
+          writeLog(`❌ GitHub PR creation failed: ${errorText}`, "pr-submitter");
           return {
             content: [
               {
@@ -197,7 +241,7 @@ server.tool(
         const prData: GithubPRResponse = (await res.json()) as GithubPRResponse;
         const prUrl = prData.html_url;
 
-        writeLog(`✅ PR created: ${prUrl}`, workingDir);
+        writeLog(`✅ PR created: ${prUrl}`, "pr-submitter");
         return {
           content: [
             {
@@ -207,7 +251,7 @@ server.tool(
           ],
         };
       } catch (err: any) {
-        writeLog(`❌ GitHub API request failed: ${err.message}`, workingDir);
+        writeLog(`❌ GitHub API request failed: ${err.message}`, "pr-submitter");
         return {
           content: [
             {
@@ -218,7 +262,7 @@ server.tool(
         };
       }
     } catch (error) {
-      writeLog(`❌ Error pushing branch:\n${error}`, workingDir);
+      writeLog(`❌ Error pushing branch:\n${error}`, "pr-submitter");
       return {
         content: [
           {
@@ -243,7 +287,7 @@ server.tool(
   "get-reviewers",
   "Fetch available reviewers for the repository",
   {
-    workingDir: z.string().default(".")
+    workingDir: z.string(),
   },
   async ({ workingDir }) => {
     const { owner, repo } = getRepoInfo(workingDir);
@@ -251,36 +295,49 @@ server.tool(
 
     if (!githubToken) {
       return {
-        content: [{ type: "text", text: "❌ GITHUB_TOKEN is not set in environment variables." }]
+        content: [
+          {
+            type: "text",
+            text: "❌ GITHUB_TOKEN is not set in environment variables.",
+          },
+        ],
       };
     }
 
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/collaborators`, {
-      headers: {
-        Authorization: `Bearer ${githubToken}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "mcp-pr-writer"
+    const res = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/collaborators`,
+      {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "mcp-pr-writer",
+        },
       }
-    });
+    );
 
     if (!res.ok) {
       const errorText = await res.text();
-      writeLog(`❌ Reviewer fetch failed: ${errorText}`, workingDir);
+      writeLog(`❌ Reviewer fetch failed: ${errorText}`, "pr-submitter");
       return {
-        content: [{ type: "text", text: `❌ Failed to fetch reviewers.\n\n${errorText}` }]
+        content: [
+          {
+            type: "text",
+            text: `❌ Failed to fetch reviewers.\n\n${errorText}`,
+          },
+        ],
       };
     }
 
-    const users = await res.json() as { login: string }[];
+    const users = (await res.json()) as { login: string }[];
     const reviewers = users.map((u) => `- ${u.login}`).join("\n");
 
-    return {    
+    return {
       content: [
         {
           type: "text",
-          text: `The following users can be assigned as reviewers:\n\n${reviewers}\n\nPlease select the reviewers you want to assign to this PR.`
-        }
-      ]
+          text: `The following users can be assigned as reviewers:\n\n${reviewers}\n\nPlease select the reviewers you want to assign to this PR.`,
+        },
+      ],
     };
   }
 );

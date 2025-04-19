@@ -1,11 +1,17 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import { execSync } from "child_process";
 
-export function writeLog(message: string, workingDir: string) {
-  const logPath = path.join(workingDir, "mcp-pr.log");
-  fs.appendFileSync(logPath, `\n[${new Date().toISOString()}]\n${message}\n`);
-}
+export function writeLog(message: string, tag: string = "pr-writer") {
+    const baseDir = path.join(os.homedir(), ".mcp", "logs"); // ← 공용 로그 디렉토리!
+    fs.mkdirSync(baseDir, { recursive: true });
+  
+    const filePath = path.join(baseDir, `${tag}.log`);
+    const timestamp = new Date().toISOString();
+  
+    fs.appendFileSync(filePath, `[${timestamp}]\n${message}\n\n`);
+  }
 
 export function extractTicketTag(branchName: string): string | null {
   const match = branchName.match(/([A-Z]+-\d+)/);
