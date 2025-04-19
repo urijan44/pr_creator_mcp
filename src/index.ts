@@ -10,7 +10,8 @@ import {
   extractTicketTag,
   getRepoInfo,
   getGitDiff,
-  getGitUser
+  getGitUser,
+  loadPRTemplate
 } from "./helper.js";
 
 const server = new McpServer({
@@ -39,6 +40,7 @@ server.tool(
 
     const diff = getGitDiff(baseBranch, headBranch, workingDir);
     const ticketTag = extractTicketTag(headBranch);
+    const template = loadPRTemplate(workingDir);
     const message = [
       `You are about to generate a pull request based on the following Git diff.`,
       `Please create a draft pull request title and description.`,
@@ -48,6 +50,7 @@ server.tool(
         : `If the current branch contains a ticket ID (e.g. "TICKET-123"), format the title like: [TICKET-123] Your title here.`,
       `Present the result in a way that the user can review and optionally revise before submitting.`,
       `Ask the user: "Would you like to proceed with this pull request as written, or make some changes?"`,
+      template ? `\n---\nPlease follow this PR template:\n\n${template}\n---\n` : "",
       diff,
     ].join("\n");
 

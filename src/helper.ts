@@ -55,3 +55,16 @@ export function getGitUser(workingDir: string): string {
   return gitUser;
 }
 
+export function loadPRTemplate(workingDir: string): string | null {
+    const possiblePaths = [
+        path.join(workingDir, ".github", "PULL_REQUEST_TEMPLATE.md"),
+        path.join(workingDir, "PULL_REQUEST_TEMPLATE.md")
+    ];
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            return fs.readFileSync(p, "utf-8");
+        }
+    }
+    return null;
+}
+
