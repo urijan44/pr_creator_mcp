@@ -1,21 +1,16 @@
+import dotenv from "dotenv";
+dotenv.config();
+import fetch from "node-fetch"; // if using node-fetch for HTTP requests
 import { z } from "zod";
 import { execSync } from "child_process";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { writeLog, extractTicketTag } from "./helper.js";
+import { writeLog, extractTicketTag, getRepoInfo, getGitDiff } from "./helper.js";
 
 const server = new McpServer({
     name: "pr-writer",
     version: "0.0.1"
 });
-
-function getGitDiff(baseBranch: string, headBranch: string, workingDir: string): string {
-    const diff = execSync(`git diff ${baseBranch}...${headBranch}`, {
-        cwd: workingDir,
-        encoding: "utf-8"
-    });
-    return diff.trim();
-  }
 
 server.tool(
     "pr-creator",
@@ -79,6 +74,81 @@ server.tool(
                 encoding: "utf-8"
             });
             writeLog(`✅ Branch pushed successfully:\n${pushResult}`, workingDir)
+            
+            const { owner, repo } = getRepoInfo(workingDir);
+            const githubToken = process.env.GITHUB_TOKEN;
+            
+            if (!githubToken) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "❌ GITHUB_TOKEN is not set in environment variables."
+                        }
+                    ]
+                };
+            }
+            
+            try {
+                const url = `https://api.github.com/repos/${owner}/${repo}/pulls`;
+                writeLog(`Creating pull request...${url}`, workingDir);
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${githubToken}`,
+                        "Accept": "application/vnd.github+json",
+                        "User-Agent": "mcp-pr-writer"
+                    },
+                    body: JSON.stringify({
+                        title,
+                        head: headBranch,
+                        base: baseBranch,
+                        body
+                    })
+                });
+            
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    writeLog(`❌ GitHub PR creation failed: ${errorText}`, workingDir);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `❌ GitHub PR creation failed.\n\n${errorText}`
+                            }
+                        ]
+                    };
+                }
+            
+
+                type GithubPRResponse = {
+                    html_url: string;
+                    [key: string]: any;
+                };
+
+                const prData: GithubPRResponse = await res.json() as GithubPRResponse;
+                const prUrl = prData.html_url;
+            
+                writeLog(`✅ PR created: ${prUrl}`, workingDir);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `✅ Pull request successfully created: ${prUrl}`
+                        }
+                    ]
+                };
+            } catch (err: any) {
+                writeLog(`❌ GitHub API request failed: ${err.message}`, workingDir);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `❌ Failed to create pull request: ${err.message}`
+                        }
+                    ]
+                };
+            }
         } catch (error) {
             writeLog(`❌ Error pushing branch:\n${error}`, workingDir)
             return {
