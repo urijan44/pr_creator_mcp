@@ -44,3 +44,14 @@ export function getGitDiff(
   });
   return diff.trim();
 }
+
+// Additional logic for PR submission
+export function getGitUser(workingDir: string): string {
+  const gitUser = execSync("git config user.name", {
+    cwd: workingDir,
+    encoding: "utf-8",
+  }).trim();
+  writeLog(`getGitUser: ${gitUser}`, workingDir);
+  return gitUser;
+}
+
