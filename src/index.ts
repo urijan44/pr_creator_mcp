@@ -13,6 +13,8 @@ import {
   getGitUser,
   loadPRTemplate,
 } from "./helper.js";
+const githubApiBase = process.env.GITHUB_API_BASE ?? "https://api.github.com";
+const githubWebBase = process.env.GITHUB_WEB_BASE ?? "https://github.com";
 import { write } from "fs";
 
 const server = new McpServer({
@@ -56,7 +58,7 @@ server.tool(
       .map((line) => {
         const [hash, ...msgParts] = line.split(" ");
         const msg = msgParts.join(" ");
-        const url = `https://github.com/${owner}/${repo}/commit/${hash}`;
+        const url = `${githubWebBase}/${owner}/${repo}/commit/${hash}`;
         return `- [${hash}](${url}) ${msg}`;
       })
       .join("\n");
@@ -134,13 +136,13 @@ server.tool(
       }
 
       try {
-        const url = `https://api.github.com/repos/${owner}/${repo}/pulls`;
+        const url = `${githubApiBase}/repos/${owner}/${repo}/pulls`;
         writeLog(`Creating pull request...${url}`, "pr-submitter");
         const user = getGitUser(workingDir);
 
         // Check if a pull request already exists between the same head and base
         const existingPRRes = await fetch(
-          `https://api.github.com/repos/${owner}/${repo}/pulls?head=${owner}:${headBranch}&base=${baseBranch}`,
+          `${githubApiBase}/repos/${owner}/${repo}/pulls?head=${owner}:${headBranch}&base=${baseBranch}`,
           {
             headers: {
               Authorization: `Bearer ${githubToken}`,
@@ -163,7 +165,7 @@ server.tool(
 
         if (existingPR) {
           const updateRes = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/pulls/${existingPR.number}`,
+            `${githubApiBase}/repos/${owner}/${repo}/pulls/${existingPR.number}`,
             {
               method: "PATCH",
               headers: {
@@ -305,7 +307,7 @@ server.tool(
     }
 
     const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/collaborators`,
+      `${githubApiBase}/repos/${owner}/${repo}/collaborators`,
       {
         headers: {
           Authorization: `Bearer ${githubToken}`,
