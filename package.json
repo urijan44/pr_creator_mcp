@@ -1,10 +1,11 @@
 {
+  "type": "module",
   "name": "pr_creator_mcp",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc && chmod 755 build/index.js"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +15,10 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.1"
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "zod": "^3.24.3"
+  },
+  "bin": {
+    "pr-creator": "./build/index.js"
   }
 }
