@@ -4,14 +4,14 @@ import os from "os";
 import { execSync } from "child_process";
 
 export function writeLog(message: string, tag: string = "pr-writer") {
-    const baseDir = path.join(os.homedir(), ".mcp", "logs"); // ← 공용 로그 디렉토리!
+    const baseDir = path.join(os.homedir(), ".mcp", "logs");
     fs.mkdirSync(baseDir, { recursive: true });
-  
-    const filePath = path.join(baseDir, `${tag}.log`);
+
+    const filePath = path.join(baseDir, "pr_creator_mcp.log");  // 🔒 고정 이름
+
     const timestamp = new Date().toISOString();
-  
     fs.appendFileSync(filePath, `[${timestamp}]\n${message}\n\n`);
-  }
+}
 
 export function extractTicketTag(branchName: string): string | null {
   const match = branchName.match(/([A-Z]+-\d+)/);
@@ -25,18 +25,17 @@ export function getRepoInfo(cwd: string): { owner: string; repo: string } {
   }).trim();
   // git@github.com:user/repo.git
   writeLog(`getRepoInfo: ${remoteUrl}`, cwd);
-  let match = remoteUrl.match(/git@[^:]+:([^/]+)\/([^.]+)(\.git)?$/);
+  const regex = /https:\/\/[^/]+\/([^/]+)\/([^/]+)(?:\.git)?$/;
+
+
+  let match = remoteUrl.match(regex);
   if (!match) {
     writeLog(`getRepoInfo: no match`, cwd);
     // https://github.com/user/repo.git
-    match = remoteUrl.match(/https:\/\/[^/]+\/([^/]+)\/([^.]+)(\.git)?$/);
-  }
-
-  if (!match) {
     throw new Error(`Invalid or unsupported remote URL format: ${remoteUrl}`);
   }
-
-  return { owner: match[1], repo: match[2] };
+  const repo = match[2].replace(/\.git$/, "");
+  return { owner: match[1], repo: repo };
 }
 
 export function getGitDiff(
