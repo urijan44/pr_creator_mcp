@@ -9,8 +9,8 @@
  ### 1. 저장소 클론 및 디렉토리 이동
  
  ```bash
- git clone https://github.com/urijan44/pr-creator-mcp.git
- cd pr-creator-mcp
+ git clone https://github.com/urijan44/pr_creator_mcp.git
+ cd pr_creator_mcp
  ```
  
  ### 2. 의존성 설치
