@@ -113,6 +113,10 @@ server.tool(
       .describe("GitHub usernames to assign as reviewers"),
   },
   async ({ workingDir, baseBranch, headBranch, title, body, reviewers }) => {
+    type GithubPRResponse = {
+      html_url: string;
+      [key: string]: any;
+    };
     try {
       const pushResult = execSync(`git push -u origin ${headBranch}`, {
         cwd: workingDir,
@@ -190,19 +194,20 @@ server.tool(
                 },
               ],
             };
+          } else {
+            const updatedPR = (await updateRes.json()) as GithubPRResponse;
+            writeLog(`✅ Updated existing PR: ${updatedPR.html_url}`, "pr-submitter");
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `✅ Pull request updated: ${updatedPR.html_url}`,
+                },
+              ],
+            };
           }
-
-          const updatedPR = (await updateRes.json()) as GithubPRResponse;
-          writeLog(`✅ Updated existing PR: ${updatedPR.html_url}`, "pr-submitter");
-          return {
-            content: [
-              {
-                type: "text",
-                text: `✅ Pull request updated: ${updatedPR.html_url}`,
-              },
-            ],
-          };
         }
+        // 기존 PR이 없을 때만 아래 코드 실행
         const payload = {
           title,
           head: headBranch,
@@ -232,25 +237,20 @@ server.tool(
               },
             ],
           };
+        } else {
+          const prData: GithubPRResponse = (await res.json()) as GithubPRResponse;
+          const prUrl = prData.html_url;
+
+          writeLog(`✅ PR created: ${prUrl}`, "pr-submitter");
+          return {
+            content: [
+              {
+                type: "text",
+                text: `✅ Pull request successfully created: ${prUrl}`,
+              },
+            ],
+          };
         }
-
-        type GithubPRResponse = {
-          html_url: string;
-          [key: string]: any;
-        };
-
-        const prData: GithubPRResponse = (await res.json()) as GithubPRResponse;
-        const prUrl = prData.html_url;
-
-        writeLog(`✅ PR created: ${prUrl}`, "pr-submitter");
-        return {
-          content: [
-            {
-              type: "text",
-              text: `✅ Pull request successfully created: ${prUrl}`,
-            },
-          ],
-        };
       } catch (err: any) {
         writeLog(`❌ GitHub API request failed: ${err.message}`, "pr-submitter");
         return {
